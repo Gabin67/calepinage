@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calepinage — Optimiseur de découpe</title>
+<style>
+  :root{
+    --ink:#1B2A4A;
+    --ink-soft:#4A5A7A;
+    --paper:#F0F3F5;
+    --panel:#FFFFFF;
+    --grid-line:#D7DEE6;
+    --amber:#C97A2B;
+    --amber-dark:#9C5D1C;
+    --forest:#3F6659;
+    --rust:#B5433D;
+    --line:#C7CEDA;
+    --reuse:#3F8F6E;
+    --radius:2px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size:24px 24px;
+    color:var(--ink);
+    font-family:'IBM Plex Sans', 'Segoe UI', Arial, sans-serif;
+    min-height:100vh;
+  }
+  @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important;} }
+
+  .frame{ max-width:1360px; margin:20px auto; padding:0 16px 60px; }
+
+  .titleblock{
+    position:relative; border:2px solid var(--ink); background:var(--panel);
+    padding:18px 24px; margin-bottom:18px;
+    display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:10px;
+  }
+  .titleblock::before, .titleblock::after{ content:""; position:absolute; width:14px; height:14px; border:2px solid var(--ink); }
+  .titleblock::before{ top:-2px; left:-2px; border-right:none; border-bottom:none; }
+  .titleblock::after{ bottom:-2px; right:-2px; border-left:none; border-top:none; }
+  .titleblock h1{ font-family:'Space Grotesk','IBM Plex Sans',sans-serif; font-size:26px; letter-spacing:0.5px; margin:0; text-transform:uppercase; }
+  .titleblock .tag{ font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--ink-soft); letter-spacing:1px; }
+
+  .layout{ display:grid; grid-template-columns:400px 1fr; gap:18px; align-items:start; }
+  @media (max-width:940px){ .layout{grid-template-columns:1fr;} }
+
+  .panel{ background:var(--panel); border:1px solid var(--ink); padding:16px; }
+  .panel + .panel{margin-top:18px;}
+  .panel h2{
+    font-family:'Space Grotesk','IBM Plex Sans',sans-serif; font-size:13px; text-transform:uppercase;
+    letter-spacing:1.5px; margin:0 0 12px; padding-bottom:8px; border-bottom:1px solid var(--line); color:var(--ink-soft);
+  }
+
+  label{ display:block; font-size:11.5px; color:var(--ink-soft); margin-bottom:4px; font-family:'IBM Plex Mono', monospace; }
+  input[type=number], input[type=text], select{
+    width:100%; padding:8px 9px; border:1px solid var(--line); border-radius:var(--radius);
+    background:#FCFDFE; color:var(--ink); font-family:'IBM Plex Mono', monospace; font-size:13.5px;
+  }
+  input[type=color]{ width:100%; height:36px; padding:2px; border:1px solid var(--line); border-radius:var(--radius); background:#FCFDFE; cursor:pointer; }
+  input:focus, select:focus, button:focus{ outline:2px solid var(--amber); outline-offset:1px; }
+
+  .row2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .row3{display:grid; grid-template-columns:1fr 1fr auto; gap:10px; align-items:end;}
+  .field{margin-bottom:12px;}
+
+  .checkline{ display:flex; align-items:center; gap:7px; font-size:12px; color:var(--ink-soft); }
+  .checkline input{width:auto; margin:0; flex-shrink:0;}
+
+  button{
+    cursor:pointer; border:1px solid var(--ink); background:var(--ink); color:#fff; padding:10px 14px;
+    font-family:'Space Grotesk','IBM Plex Sans',sans-serif; font-size:13px; text-transform:uppercase;
+    letter-spacing:0.8px; border-radius:var(--radius);
+  }
+  button:hover{background:var(--amber-dark); border-color:var(--amber-dark);}
+  button.secondary{ background:transparent; color:var(--ink); }
+  button.secondary:hover{background:var(--paper); color:var(--ink);}
+  button.danger{ background:transparent; color:var(--rust); border-color:var(--rust); padding:5px 8px; font-size:11px; }
+  button.danger:hover{background:var(--rust); color:#fff;}
+
+  .addrow-btn{ width:100%; margin-top:10px; background:transparent; color:var(--forest); border:1px dashed var(--forest); }
+  .addrow-btn:hover{background:var(--forest); color:#fff;}
+  .cta{width:100%; margin-top:16px; padding:13px; font-size:14px;}
+
+  /* ---- Edge type chips ---- */
+  .edge-chip-list{display:flex; flex-wrap:wrap; gap:7px; margin-bottom:4px;}
+  .edge-chip{
+    --chip-color:#999; display:inline-flex; align-items:center; gap:6px;
+    background:#fff; border:1px solid var(--line); padding:5px 9px; border-radius:14px;
+    font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:var(--ink); cursor:pointer;
+    text-transform:none; letter-spacing:0;
+  }
+  .edge-chip:hover{border-color:var(--chip-color); background:var(--paper);}
+  .edge-chip .chip-dot{ width:10px; height:10px; border-radius:50%; background:var(--chip-color); flex:none; }
+  .edge-chip .chip-del{ color:var(--ink-soft); font-weight:600; padding:0 2px; }
+  .edge-chip .chip-del:hover{color:var(--rust);}
+  .edge-chip-none{color:var(--ink-soft); font-style:italic;}
+  .hint{font-size:11px; color:var(--ink-soft); margin-top:8px; line-height:1.4;}
+
+  /* ---- Part cards ---- */
+  .part-card{ border:1px solid var(--line); padding:10px 11px; margin-bottom:10px; background:#FCFDFE; }
+  .part-card-top{ display:flex; gap:7px; align-items:center; margin-bottom:8px; }
+  .part-card-top .p-sel{width:auto; flex:none;}
+  .part-card-top .p-name{flex:1; font-size:13px;}
+  .part-dims{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:7px; margin-bottom:8px; }
+  .part-dims .field{margin-bottom:0;}
+  .part-dims label{font-size:10px;}
+  .part-dims input{padding:6px 7px; font-size:12.5px;}
+
+  .part-flags{ display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center; margin-bottom:8px; padding-bottom:8px; border-bottom:1px dashed var(--line); }
+  .part-flags select{width:auto; padding:5px 6px; font-size:11.5px;}
+
+  .chant-grid-label{ font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:var(--ink-soft); margin-bottom:5px; }
+  .chant-grid{ display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+  .chant-slot label{font-size:9.5px; margin-bottom:2px;}
+  .chant-cell{display:flex; align-items:center; gap:5px;}
+  .chant-swatch{ width:10px; height:10px; border-radius:50%; flex:none; border:1px solid rgba(27,42,74,0.25); background:transparent; }
+  .chant-slot select{font-size:11px; padding:5px 5px;}
+
+  /* ---- Results ---- */
+  .summary-strip{ display:flex; gap:14px; flex-wrap:wrap; margin-bottom:14px; }
+  .stat{ flex:1; min-width:120px; background:var(--panel); border:1px solid var(--ink); padding:10px 14px; }
+  .stat .num{ font-family:'IBM Plex Mono', monospace; font-size:22px; font-weight:600; }
+  .stat .lbl{ font-size:10.5px; text-transform:uppercase; letter-spacing:1px; color:var(--ink-soft); }
+  .stat.waste .num{color:var(--rust);}
+  .stat.used .num{color:var(--forest);}
+
+  .legend-strip{
+    display:flex; flex-wrap:wrap; gap:16px; background:var(--panel); border:1px solid var(--line);
+    padding:8px 14px; margin-bottom:18px; font-size:11.5px;
+  }
+  .legend-group{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  .legend-title{font-family:'IBM Plex Mono', monospace; color:var(--ink-soft); text-transform:uppercase; font-size:10px; letter-spacing:0.5px;}
+  .legend-item{display:inline-flex; align-items:center; gap:5px; color:var(--ink-soft);}
+  .legend-dot{width:9px; height:9px; border-radius:50%; flex:none;}
+
+  .sheet-card{ background:var(--panel); border:1px solid var(--ink); margin-bottom:22px; }
+  .sheet-svg-wrap{
+    padding:14px;
+    background:
+      repeating-linear-gradient(0deg, transparent, transparent 23px, rgba(27,42,74,0.035) 24px),
+      repeating-linear-gradient(90deg, transparent, transparent 23px, rgba(27,42,74,0.035) 24px);
+  }
+  .sheet-svg-wrap svg{width:100%; height:auto; display:block;}
+  .sheet-infobar{
+    display:flex; justify-content:space-between; align-items:center; padding:8px 14px;
+    border-top:1px solid var(--line); font-family:'IBM Plex Mono', monospace; font-size:11.5px;
+    color:var(--ink-soft); flex-wrap:wrap; gap:6px;
+  }
+  .sheet-infobar b{color:var(--ink); font-weight:600;}
+
+  .final-report{ background:var(--panel); border:1px solid var(--ink); padding:16px; margin-top:6px; }
+  .final-report h3{
+    font-family:'Space Grotesk','IBM Plex Sans',sans-serif; font-size:13px; text-transform:uppercase;
+    letter-spacing:1.5px; margin:0 0 12px; color:var(--ink-soft); border-bottom:1px solid var(--line); padding-bottom:8px;
+  }
+  .final-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:14px; }
+  .final-grid .num{ font-family:'IBM Plex Mono', monospace; font-size:19px; font-weight:600; }
+  .final-grid .lbl{ font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--ink-soft); }
+  .reuse-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:5px; }
+  .reuse-list li{
+    font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:var(--ink-soft);
+    border-bottom:1px solid #EEF1F4; padding:4px 0; display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;
+  }
+  .reuse-list b{color:var(--forest);}
+  .reuse-none{font-size:12px; color:var(--ink-soft); font-style:italic;}
+
+  .empty-state{ padding:50px 20px; text-align:center; color:var(--ink-soft); border:1px dashed var(--line); background:var(--panel); }
+  .part-rect text{font-family:'IBM Plex Mono', monospace;}
+  .toolbar{display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap;}
+
+  @media print{
+    body{background:#fff; background-image:none;}
+    .layout{display:block;}
+    .panel:first-child, .toolbar{display:none;}
+    .sheet-card{break-inside:avoid; page-break-inside:avoid;}
+  }
+</style>
+</head>
+<body>
+
+<div class="frame">
+  <div class="titleblock">
+    <h1>Calepinage</h1>
+    <span class="tag">OPTIMISEUR DE DÉCOUPE — PANNEAUX / TÔLE / VERRE</span>
+  </div>
+
+  <div class="layout">
+    <!-- SIDEBAR -->
+    <div>
+      <div class="panel">
+        <h2>Panneau de stock</h2>
+        <div class="row2">
+          <div class="field">
+            <label for="stockW">Longueur</label>
+            <input type="number" id="stockW" value="2800" min="1">
+          </div>
+          <div class="field">
+            <label for="stockH">Largeur</label>
+            <input type="number" id="stockH" value="2070" min="1">
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="kerf">Trait de scie</label>
+            <input type="number" id="kerf" value="3" min="0" step="0.5">
+          </div>
+          <div class="field">
+            <label for="unit">Unité</label>
+            <select id="unit">
+              <option value="mm" selected>mm</option>
+              <option value="cm">cm</option>
+              <option value="in">in</option>
+            </select>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="margin">Marge périphérique</label>
+            <input type="number" id="margin" value="0" min="0" step="0.5">
+          </div>
+          <div class="field">
+            <label for="grainGlobal">Sens du fil (panneau)</label>
+            <select id="grainGlobal">
+              <option value="aucun" selected>Aucun</option>
+              <option value="horizontal">Horizontal (↔)</option>
+              <option value="vertical">Vertical (↕)</option>
+            </select>
+          </div>
+        </div>
+        <div class="row2" style="margin-bottom:0;">
+          <div class="field" style="margin-bottom:0;">
+            <label for="stockQty">Panneaux disponibles</label>
+            <input type="number" id="stockQty" value="0" min="0" step="1" title="0 = illimité">
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label for="reuseThreshold">Seuil chute réutilisable (cm²)</label>
+            <input type="number" id="reuseThreshold" value="90" min="0" step="1">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="edgePanel">
+        <h2>Chants (plaquage de bords)</h2>
+        <div class="edge-chip-list" id="edgeTypesList"></div>
+
+        <div class="row3" style="margin-top:10px;">
+          <div class="field" style="margin-bottom:0;">
+            <label for="newEdgeName">Nom du chant</label>
+            <input type="text" id="newEdgeName" placeholder="ex. Blanc 1mm">
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label for="newEdgeColor">Couleur</label>
+            <input type="color" id="newEdgeColor" value="#B5433D">
+          </div>
+          <button type="button" class="secondary" id="addEdgeType">+ Créer</button>
+        </div>
+
+        <div style="margin-top:14px; padding-top:12px; border-top:1px dashed var(--line);">
+          <label for="applyTarget">Application rapide sur pièces sélectionnées (✓)</label>
+          <select id="applyTarget">
+            <option value="front">Chant long — avant</option>
+            <option value="back">Chant long — arrière</option>
+            <option value="long-both">Chant long — les deux</option>
+            <option value="left">Chant court — gauche</option>
+            <option value="right">Chant court — droite</option>
+            <option value="court-both">Chant court — les deux</option>
+          </select>
+          <div class="hint">Cochez une ou plusieurs pièces ci-dessous, choisissez la position, puis cliquez sur un chant pour l'appliquer en un clic. Cliquez sur « Aucun » pour retirer.</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Pièces à découper</h2>
+        <div class="checkline" style="margin-bottom:10px;">
+          <input type="checkbox" id="selectAllParts">
+          <label for="selectAllParts" style="margin:0; font-family:inherit; font-size:12px;">Tout sélectionner</label>
+        </div>
+        <div id="partsBody"></div>
+        <button class="addrow-btn" id="addPart" type="button">+ Ajouter une pièce</button>
+      </div>
+
+      <button class="cta" id="computeBtn" type="button">Calculer le calepinage</button>
+    </div>
+
+    <!-- MAIN -->
+    <div>
+      <div class="toolbar" id="toolbar" style="display:none;">
+        <button class="secondary" id="printBtn" type="button">Exporter en PDF</button>
+      </div>
+      <div id="summary"></div>
+      <div id="results">
+        <div class="empty-state">
+          Renseignez vos panneaux et vos pièces, puis lancez le calcul pour voir apparaître le plan de découpe ici.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var STORAGE_KEY = "calepinage_state_v3";
+  var partsBody = document.getElementById('partsBody');
+  var rowCount = 0;
+
+  // ============== EDGE BAND TYPES (CHANTS) ==============
+  var edgeTypes = []; // {id, name, color}
+
+  function uid(prefix){ return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+  function escapeXML(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function edgeTypeById(id){
+    if(!id) return null;
+    for(var i=0;i<edgeTypes.length;i++){ if(edgeTypes[i].id===id) return edgeTypes[i]; }
+    return null;
+  }
+
+  var EDGE_SLOTS = [
+    {cls:'p-edge-front', label:'Long — avant'},
+    {cls:'p-edge-back',  label:'Long — arrière'},
+    {cls:'p-edge-left',  label:'Court — gauche'},
+    {cls:'p-edge-right', label:'Court — droite'}
+  ];
+
+  function buildEdgeSelectOptions(selectedId){
+    var html = '<option value=""'+(!selectedId?' selected':'')+'>Aucun</option>';
+    edgeTypes.forEach(function(t){
+      html += '<option value="'+t.id+'"'+(selectedId===t.id?' selected':'')+'>'+escapeXML(t.name)+'</option>';
+    });
+    return html;
+  }
+
+  function isEdgeValValid(id){ return !id || !!edgeTypeById(id); }
+
+  function updateSwatch(selectEl){
+    var swatch = selectEl.parentElement.querySelector('.chant-swatch');
+    if(!swatch) return;
+    var t = edgeTypeById(selectEl.value);
+    swatch.style.background = t ? t.color : 'transparent';
+  }
+
+  function refreshAllEdgeSelects(){
+    Array.prototype.forEach.call(partsBody.children, function(card){
+      EDGE_SLOTS.forEach(function(slot){
+        var el = card.querySelector('.'+slot.cls);
+        if(!el) return;
+        var current = isEdgeValValid(el.value) ? el.value : '';
+        el.innerHTML = buildEdgeSelectOptions(current);
+        updateSwatch(el);
+      });
+    });
+  }
+
+  function renderEdgeTypes(){
+    var wrap = document.getElementById('edgeTypesList');
+    var html = '<button type="button" class="edge-chip edge-chip-none" data-id="">Aucun</button>';
+    edgeTypes.forEach(function(t){
+      html += '<button type="button" class="edge-chip" data-id="'+t.id+'" style="--chip-color:'+t.color+'">'+
+                '<span class="chip-dot"></span>'+escapeXML(t.name)+
+                '<span class="chip-del" data-del="'+t.id+'" title="Supprimer">×</span>'+
+              '</button>';
+    });
+    wrap.innerHTML = html;
+  }
+
+  document.getElementById('addEdgeType').addEventListener('click', function(){
+    var nameInput = document.getElementById('newEdgeName');
+    var colorInput = document.getElementById('newEdgeColor');
+    var name = nameInput.value.trim();
+    if(!name){ alert('Merci de nommer le chant (ex. "Blanc 1mm").'); nameInput.focus(); return; }
+    edgeTypes.push({ id: uid('edge_'), name: name, color: colorInput.value });
+    nameInput.value = '';
+    renderEdgeTypes();
+    refreshAllEdgeSelects();
+    saveState();
+  });
+
+  function getSelectedRows(){
+    return Array.prototype.filter.call(partsBody.children, function(card){
+      var cb = card.querySelector('.p-sel');
+      return cb && cb.checked;
+    });
+  }
+
+  var TARGET_MAP = {
+    'front':['p-edge-front'], 'back':['p-edge-back'], 'long-both':['p-edge-front','p-edge-back'],
+    'left':['p-edge-left'], 'right':['p-edge-right'], 'court-both':['p-edge-left','p-edge-right']
+  };
+
+  document.getElementById('edgeTypesList').addEventListener('click', function(e){
+    var delTarget = e.target.closest('[data-del]');
+    if(delTarget){
+      var delId = delTarget.getAttribute('data-del');
+      edgeTypes = edgeTypes.filter(function(t){ return t.id !== delId; });
+      renderEdgeTypes();
+      refreshAllEdgeSelects();
+      saveState();
+      return;
+    }
+    var chip = e.target.closest('.edge-chip');
+    if(!chip) return;
+    var typeId = chip.getAttribute('data-id');
+    var selectedRows = getSelectedRows();
+    if(selectedRows.length === 0){
+      alert('Cochez d\'abord au moins une pièce dans la liste ci-dessous.');
+      return;
+    }
+    var target = document.getElementById('applyTarget').value;
+    var classes = TARGET_MAP[target] || [];
+    selectedRows.forEach(function(card){
+      classes.forEach(function(cls){
+        var sel = card.querySelector('.'+cls);
+        if(!sel) return;
+        sel.value = typeId;
+        updateSwatch(sel);
+      });
+    });
+    saveState();
+  });
+
+  document.getElementById('selectAllParts').addEventListener('change', function(){
+    var checked = this.checked;
+    Array.prototype.forEach.call(partsBody.children, function(card){
+      var cb = card.querySelector('.p-sel');
+      if(cb) cb.checked = checked;
+    });
+  });
+
+  // ============== PARTS UI (cards) ==============
+  function edgeSlotHTML(slot, selectedId){
+    return '<div class="chant-slot">'+
+      '<label>'+slot.label+'</label>'+
+      '<span class="chant-cell"><span class="chant-swatch"></span>'+
+      '<select class="'+slot.cls+'">'+buildEdgeSelectOptions(selectedId)+'</select></span>'+
+    '</div>';
+  }
+
+  function makeRow(data){
+    data = data || {};
+    rowCount++;
+    var card = document.createElement('div');
+    card.className = 'part-card';
+    card.dataset.id = rowCount;
+    var grainMode = data.grainMode || 'suivre';
+
+    var edgeFront = isEdgeValValid(data.edgeFront) ? (data.edgeFront||'') : '';
+    var edgeBack  = isEdgeValValid(data.edgeBack)  ? (data.edgeBack||'')  : '';
+    var edgeLeft  = isEdgeValValid(data.edgeLeft)  ? (data.edgeLeft||'')  : '';
+    var edgeRight = isEdgeValValid(data.edgeRight) ? (data.edgeRight||'')  : '';
+
+    card.innerHTML =
+      '<div class="part-card-top">'+
+        '<input type="checkbox" class="p-sel">'+
+        '<input type="text" class="p-name" value="'+ escapeXML(data.name||('Pièce '+rowCount)) +'">'+
+        '<button type="button" class="danger" data-action="del">✕</button>'+
+      '</div>'+
+      '<div class="part-dims">'+
+        '<div class="field"><label>Longueur</label><input type="number" class="p-w" min="1" value="'+ (data.w||600) +'"></div>'+
+        '<div class="field"><label>Largeur</label><input type="number" class="p-h" min="1" value="'+ (data.h||400) +'"></div>'+
+        '<div class="field"><label>Qté</label><input type="number" class="p-qty" min="1" value="'+ (data.qty||1) +'"></div>'+
+      '</div>'+
+      '<div class="part-flags">'+
+        '<label class="checkline"><input type="checkbox" class="p-rot" '+(data.rot!==false?'checked':'')+'> Rotation autorisée</label>'+
+        '<label class="checkline">Fil :'+
+          '<select class="p-grain">'+
+            '<option value="suivre"'+(grainMode==='suivre'?' selected':'')+'>Panneau</option>'+
+            '<option value="horizontal"'+(grainMode==='horizontal'?' selected':'')+'>Horiz.</option>'+
+            '<option value="vertical"'+(grainMode==='vertical'?' selected':'')+'>Vert.</option>'+
+            '<option value="aucun"'+(grainMode==='aucun'?' selected':'')+'>Aucun</option>'+
+          '</select>'+
+        '</label>'+
+        '<label class="checkline"><input type="checkbox" class="p-grainlock" '+(data.grainLock?'checked':'')+'> 🔒 Verrouiller</label>'+
+      '</div>'+
+      '<div class="chant-grid-label">Chants à plaquer</div>'+
+      '<div class="chant-grid">'+
+        edgeSlotHTML(EDGE_SLOTS[0], edgeFront) +
+        edgeSlotHTML(EDGE_SLOTS[1], edgeBack) +
+        edgeSlotHTML(EDGE_SLOTS[2], edgeLeft) +
+        edgeSlotHTML(EDGE_SLOTS[3], edgeRight) +
+      '</div>';
+
+    partsBody.appendChild(card);
+    EDGE_SLOTS.forEach(function(slot){ updateSwatch(card.querySelector('.'+slot.cls)); });
+  }
+
+  partsBody.addEventListener('click', function(e){
+    if(e.target.dataset.action === 'del'){
+      var card = e.target.closest('.part-card');
+      if(partsBody.children.length > 1){ card.remove(); }
+    }
+  });
+
+  partsBody.addEventListener('change', function(e){
+    if(/^p-edge-(front|back|left|right)$/.test(e.target.className)){
+      updateSwatch(e.target);
+    }
+  });
+
+  document.getElementById('addPart').addEventListener('click', function(){ makeRow(); });
+
+  // ============== STATE PERSISTENCE ==============
+  function loadState(){
+    try{
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return false;
+      var s = JSON.parse(raw);
+
+      edgeTypes = s.edgeTypes || [];
+      renderEdgeTypes();
+
+      document.getElementById('stockW').value = s.stockW;
+      document.getElementById('stockH').value = s.stockH;
+      document.getElementById('kerf').value = s.kerf;
+      document.getElementById('unit').value = s.unit;
+      document.getElementById('margin').value = (s.margin!=null? s.margin : 0);
+      document.getElementById('grainGlobal').value = s.grainGlobal || 'aucun';
+      document.getElementById('stockQty').value = (s.stockQty!=null? s.stockQty : 0);
+      document.getElementById('reuseThreshold').value = (s.reuseThresholdCm2!=null? s.reuseThresholdCm2 : 90);
+
+      partsBody.innerHTML = '';
+      (s.parts||[]).forEach(function(p){
+        makeRow({
+          name:p.name, w:p.w, h:p.h, qty:p.qty, rot:p.rot,
+          edgeFront:p.edgeFront, edgeBack:p.edgeBack, edgeLeft:p.edgeLeft, edgeRight:p.edgeRight,
+          grainMode:p.grainMode, grainLock:p.grainLock
+        });
+      });
+      return true;
+    }catch(err){ return false; }
+  }
+
+  function saveState(){
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(gatherInput())); }
+    catch(err){ /* stockage indisponible, on ignore */ }
+  }
+
+  function gatherInput(){
+    var parts = [];
+    Array.prototype.forEach.call(partsBody.children, function(card){
+      parts.push({
+        name: card.querySelector('.p-name').value || 'Pièce',
+        w: parseFloat(card.querySelector('.p-w').value) || 0,
+        h: parseFloat(card.querySelector('.p-h').value) || 0,
+        qty: parseInt(card.querySelector('.p-qty').value,10) || 1,
+        rot: card.querySelector('.p-rot').checked,
+        edgeFront: card.querySelector('.p-edge-front').value || null,
+        edgeBack:  card.querySelector('.p-edge-back').value  || null,
+        edgeLeft:  card.querySelector('.p-edge-left').value  || null,
+        edgeRight: card.querySelector('.p-edge-right').value || null,
+        grainMode: card.querySelector('.p-grain').value,
+        grainLock: card.querySelector('.p-grainlock').checked
+      });
+    });
+    return {
+      stockW: parseFloat(document.getElementById('stockW').value) || 0,
+      stockH: parseFloat(document.getElementById('stockH').value) || 0,
+      kerf: parseFloat(document.getElementById('kerf').value) || 0,
+      unit: document.getElementById('unit').value,
+      margin: parseFloat(document.getElementById('margin').value) || 0,
+      grainGlobal: document.getElementById('grainGlobal').value,
+      stockQty: parseInt(document.getElementById('stockQty').value,10) || 0,
+      reuseThresholdCm2: parseFloat(document.getElementById('reuseThreshold').value) || 0,
+      edgeTypes: edgeTypes,
+      parts: parts
+    };
+  }
+
+  if(!loadState()){
+    renderEdgeTypes();
+    makeRow({name:'Côté', w:600, h:400, qty:4, rot:true});
+    makeRow({name:'Étagère', w:800, h:300, qty:2, rot:true});
+  }
+
+  // ============== PACKING ALGORITHM (guillotine, multi-heuristique) ==============
+  var COLORS = ['#C97A2B','#3F6659','#5C6FA8','#B5433D','#8B6BAF','#4C8FA0','#B08A2E','#6A7F3F'];
+
+  function effectiveGrainOf(part, globalGrain){
+    return part.grainMode === 'suivre' ? globalGrain : part.grainMode;
+  }
+
+  function buildInstances(input){
+    var instances = [];
+    input.parts.forEach(function(p, idx){
+      var eff = effectiveGrainOf(p, input.grainGlobal);
+      var allowRotate = p.rot && !(p.grainLock && eff !== 'aucun');
+      for(var i=0;i<p.qty;i++){
+        instances.push({
+          name:p.name, w:p.w, h:p.h, allowRotate:allowRotate, colorIdx: idx % COLORS.length,
+          edgeFront:p.edgeFront, edgeBack:p.edgeBack, edgeLeft:p.edgeLeft, edgeRight:p.edgeRight,
+          grainMode:p.grainMode, grainLock:p.grainLock
+        });
+      }
+    });
+    return instances;
+  }
+
+  // strategy: 'area' (best-area-fit), 'short' (best-short-side-fit), 'long' (best-long-side-fit)
+  function packWithOrder(usableW, usableH, kerf, maxSheets, instances0, strategy){
+    var sheets = [];
+    var overflow = [];
+
+    function newSheet(){ return { freeRects:[{x:0,y:0,w:usableW,h:usableH}], placed:[] }; }
+
+    function wasteScore(r, ow, oh){
+      if(strategy === 'short') return Math.min(r.w-ow, r.h-oh);
+      if(strategy === 'long')  return Math.max(r.w-ow, r.h-oh);
+      return (r.w*r.h) - (ow*oh); // 'area'
+    }
+
+    instances0.forEach(function(inst){
+      var best = null;
+      sheets.forEach(function(sheet, sIdx){
+        sheet.freeRects.forEach(function(r, rIdx){
+          [ {w:inst.w, h:inst.h, rotated:false},
+            {w:inst.h, h:inst.w, rotated:true} ].forEach(function(orient){
+            if(!inst.allowRotate && orient.rotated) return;
+            if(orient.w <= r.w + 1e-6 && orient.h <= r.h + 1e-6){
+              var waste = wasteScore(r, orient.w, orient.h);
+              if(!best || waste < best.waste){
+                best = {sheetIdx:sIdx, rectIdx:rIdx, w:orient.w, h:orient.h, rotated:orient.rotated, waste:waste};
+              }
+            }
+          });
+        });
+      });
+
+      var sheet, r;
+      if(best){
+        sheet = sheets[best.sheetIdx];
+        r = sheet.freeRects[best.rectIdx];
+      } else {
+        if(maxSheets && sheets.length >= maxSheets){ overflow.push(inst); return; }
+        sheet = newSheet();
+        sheets.push(sheet);
+        r = sheet.freeRects[0];
+        var fitsNormal = inst.w <= r.w && inst.h <= r.h;
+        var fitsRot = inst.allowRotate && inst.h <= r.w && inst.w <= r.h;
+        if(fitsNormal){ best = {sheetIdx: sheets.length-1, rectIdx:0, w:inst.w, h:inst.h, rotated:false}; }
+        else if(fitsRot){ best = {sheetIdx: sheets.length-1, rectIdx:0, w:inst.h, h:inst.w, rotated:true}; }
+        else { overflow.push(inst); sheets.pop(); return; }
+      }
+
+      var px = r.x, py = r.y, pw = best.w, ph = best.h;
+      sheet.placed.push({
+        x:px, y:py, w:pw, h:ph, name:inst.name, rotated:best.rotated, colorIdx:inst.colorIdx,
+        edgeFront:inst.edgeFront, edgeBack:inst.edgeBack, edgeLeft:inst.edgeLeft, edgeRight:inst.edgeRight,
+        grainMode:inst.grainMode, grainLock:inst.grainLock
+      });
+
+      sheet.freeRects.splice(best.rectIdx, 1);
+      var rightW = r.w - pw - kerf;
+      var bottomH = r.h - ph - kerf;
+      if(rightW > 0.01){ sheet.freeRects.push({x: px+pw+kerf, y: r.y, w: rightW, h: r.h}); }
+      if(bottomH > 0.01){ sheet.freeRects.push({x: r.x, y: py+ph+kerf, w: pw, h: bottomH}); }
+
+      sheet.freeRects = sheet.freeRects.filter(function(a, i){
+        return !sheet.freeRects.some(function(b, j){
+          if(i===j) return false;
+          return a.x >= b.x-0.01 && a.y >= b.y-0.01 &&
+                 a.x+a.w <= b.x+b.w+0.01 && a.y+a.h <= b.y+b.h+0.01 &&
+                 !(a.x===b.x && a.y===b.y && a.w===b.w && a.h===b.h);
+        });
+      });
+    });
+
+    return { sheets: sheets, overflow: overflow };
+  }
+
+  function scoreResult(result, usableW, usableH){
+    var placedArea = 0, sheetCount = result.sheets.length;
+    result.sheets.forEach(function(s){ s.placed.forEach(function(p){ placedArea += p.w*p.h; }); });
+    var totalArea = usableW*usableH*sheetCount;
+    var waste = totalArea - placedArea;
+    var unplacedPenalty = result.overflow.length * (usableW*usableH) * 1000; // fortement pénalisé
+    return sheetCount * 1e12 + waste + unplacedPenalty;
+  }
+
+  function packBest(input){
+    var usableW = input.stockW - 2*input.margin;
+    var usableH = input.stockH - 2*input.margin;
+    var baseInstances = buildInstances(input);
+    var maxSheets = input.stockQty > 0 ? input.stockQty : 0;
+
+    var comparators = [
+      function(a,b){ return (b.w*b.h) - (a.w*a.h); },
+      function(a,b){ return Math.max(b.w,b.h) - Math.max(a.w,a.h); },
+      function(a,b){ return Math.min(b.w,b.h) - Math.min(a.w,a.h); },
+      function(a,b){ return (b.w+b.h) - (a.w+a.h); },
+      function(a,b){ return (b.h - a.h) || (b.w - a.w); },
+      function(a,b){ return (b.w - a.w) || (b.h - a.h); }
+    ];
+    var strategies = ['area','short','long'];
+
+    var best = null, bestScore = null;
+    comparators.forEach(function(cmp){
+      var ordered = baseInstances.slice().sort(cmp);
+      strategies.forEach(function(strat){
+        var result = packWithOrder(usableW, usableH, input.kerf, maxSheets, ordered, strat);
+        var score = scoreResult(result, usableW, usableH);
+        if(bestScore === null || score < bestScore){ bestScore = score; best = result; }
+      });
+    });
+    return best; // {sheets, overflow}
+  }
+
+  // ============== RENDERING ==============
+  function fmt(n){ return (Math.round(n*100)/100).toString(); }
+
+  function edgeMapFor(p){
+    var isLongHoriz = p.w >= p.h;
+    if(isLongHoriz){
+      return { top:p.edgeFront, bottom:p.edgeBack, left:p.edgeLeft, right:p.edgeRight };
+    }
+    return { left:p.edgeFront, right:p.edgeBack, top:p.edgeLeft, bottom:p.edgeRight };
+  }
+
+  function drawEdges(x,y,w,h,edgeMap,fontSize){
+    var sw = Math.max(fontSize*0.14, 0.8);
+    var inset = sw*2.2;
+    var trim = sw*1.6;
+    var out = '';
+    ['top','bottom','left','right'].forEach(function(edge){
+      var typeId = edgeMap[edge];
+      var t = edgeTypeById(typeId);
+      if(!t) return;
+      var x1,y1,x2,y2;
+      if(edge==='top'){ y1=y+inset; y2=y1; x1=x+trim; x2=x+w-trim; }
+      else if(edge==='bottom'){ y1=y+h-inset; y2=y1; x1=x+trim; x2=x+w-trim; }
+      else if(edge==='left'){ x1=x+inset; x2=x1; y1=y+trim; y2=y+h-trim; }
+      else { x1=x+w-inset; x2=x1; y1=y+trim; y2=y+h-trim; }
+      out += '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="'+t.color+'" stroke-width="'+sw+'" stroke-linecap="butt" />';
+    });
+    return out;
+  }
+
+  function arrowHead(px,py,angleDeg,fontSize,color){
+    var s = fontSize*0.35;
+    return '<polygon points="0,0 -'+s+',-'+(s*0.55)+' -'+s+','+(s*0.55)+'" fill="'+color+'" stroke="none" transform="translate('+px+','+py+') rotate('+angleDeg+')" />';
+  }
+
+  function drawGrain(x,y,w,h,direction,locked,fontSize){
+    var cx = x+w/2, cy = y+h/2;
+    var color = locked ? '#1B2A4A' : '#8B94A8';
+    var dash = locked ? '' : ' stroke-dasharray="'+(fontSize*0.5)+','+(fontSize*0.35)+'"';
+    var out = '<g stroke="'+color+'" stroke-width="'+(fontSize*0.09)+'" fill="none" opacity="'+(locked?0.85:0.55)+'">';
+    if(direction==='horizontal'){
+      var half = Math.min(w*0.38, w/2-4);
+      if(half>3){
+        out += '<line x1="'+(cx-half)+'" y1="'+cy+'" x2="'+(cx+half)+'" y2="'+cy+'"'+dash+' />';
+        out += arrowHead(cx+half, cy, 0, fontSize, color);
+        out += arrowHead(cx-half, cy, 180, fontSize, color);
+      }
+    } else if(direction==='vertical'){
+      var halfV = Math.min(h*0.38, h/2-4);
+      if(halfV>3){
+        out += '<line x1="'+cx+'" y1="'+(cy-halfV)+'" x2="'+cx+'" y2="'+(cy+halfV)+'"'+dash+' />';
+        out += arrowHead(cx, cy+halfV, 90, fontSize, color);
+        out += arrowHead(cx, cy-halfV, 270, fontSize, color);
+      }
+    }
+    out += '</g>';
+    if(locked){
+      var lx = direction==='horizontal' ? cx : cx+fontSize*1.1;
+      var ly = direction==='horizontal' ? cy-fontSize*0.9 : cy+fontSize*0.35;
+      out += '<text x="'+lx+'" y="'+ly+'" font-size="'+(fontSize*0.9)+'" text-anchor="middle">🔒</text>';
+    }
+    return out;
+  }
+
+  function renderSheetSVG(sheet, stockW, stockH, unit, grainGlobal, margin, reuseThresholdMm2){
+    var pad = Math.max(stockW, stockH) * 0.06;
+    var vbW = stockW + pad*2;
+    var vbH = stockH + pad*2;
+    var fontSize = Math.max(stockW, stockH) / 55;
+    var off = pad + margin;
+
+    var svg = '<svg viewBox="0 0 '+vbW+' '+vbH+'" xmlns="http://www.w3.org/2000/svg">';
+
+    // full sheet outline
+    svg += '<rect x="'+pad+'" y="'+pad+'" width="'+stockW+'" height="'+stockH+'" fill="#FCFDFE" stroke="#1B2A4A" stroke-width="'+(fontSize*0.15)+'" />';
+
+    // margin boundary (usable area)
+    if(margin > 0){
+      svg += '<rect x="'+off+'" y="'+off+'" width="'+(stockW-2*margin)+'" height="'+(stockH-2*margin)+'" fill="none" stroke="#B08A2E" stroke-width="'+(fontSize*0.06)+'" stroke-dasharray="'+(fontSize*0.4)+','+(fontSize*0.3)+'" />';
+    }
+
+    var dimOffset = pad*0.4;
+    svg += dimLine(pad, pad-dimOffset, pad+stockW, pad-dimOffset, fmt(stockW)+' '+unit, fontSize, true);
+    svg += dimLine(pad-dimOffset, pad, pad-dimOffset, pad+stockH, fmt(stockH)+' '+unit, fontSize, false);
+
+    sheet.placed.forEach(function(p){
+      var color = COLORS[p.colorIdx];
+      var x = off + p.x, y = off + p.y;
+      svg += '<g class="part-rect">';
+      svg += '<rect x="'+x+'" y="'+y+'" width="'+p.w+'" height="'+p.h+'" fill="'+color+'" fill-opacity="0.20" stroke="'+color+'" stroke-width="'+(fontSize*0.08)+'" />';
+
+      svg += drawEdges(x,y,p.w,p.h, edgeMapFor(p), fontSize);
+
+      var eff = p.grainMode==='suivre' ? grainGlobal : p.grainMode;
+      if(eff && eff!=='aucun'){ svg += drawGrain(x,y,p.w,p.h,eff,!!p.grainLock,fontSize); }
+
+      var cx = x + p.w/2, cy = y + p.h/2;
+      var label = p.name + (p.rotated ? ' ⟳' : '');
+      svg += '<text x="'+cx+'" y="'+(cy-fontSize*0.2)+'" font-size="'+fontSize+'" fill="#1B2A4A" text-anchor="middle" font-weight="600">'+escapeXML(label)+'</text>';
+      svg += '<text x="'+cx+'" y="'+(cy+fontSize*1.05)+'" font-size="'+(fontSize*0.82)+'" fill="#4A5A7A" text-anchor="middle">'+fmt(p.w)+' × '+fmt(p.h)+'</text>';
+      svg += '</g>';
+    });
+
+    sheet.freeRects.forEach(function(r){
+      var area = r.w*r.h;
+      if(area < (stockW*stockH*0.006)) return;
+      var reusable = area >= reuseThresholdMm2;
+      var x = off+r.x, y = off+r.y;
+      svg += '<rect x="'+x+'" y="'+y+'" width="'+r.w+'" height="'+r.h+'" fill="'+(reusable?'rgba(63,143,110,0.12)':'none')+'" stroke="'+(reusable?'#3F8F6E':'#C7CEDA')+'" stroke-width="'+(fontSize*(reusable?0.1:0.08))+'" stroke-dasharray="'+(fontSize*0.4)+','+(fontSize*0.3)+'" />';
+      if(area >= (stockW*stockH*0.012)){
+        var ccx = x+r.w/2, ccy = y+r.h/2;
+        svg += '<text x="'+ccx+'" y="'+(ccy-fontSize*0.15)+'" font-size="'+(fontSize*0.72)+'" fill="'+(reusable?'#3F8F6E':'#9AA6B5')+'" text-anchor="middle" font-family="IBM Plex Mono, monospace">'+(reusable?'CHUTE RÉUTILISABLE':'CHUTE')+'</text>';
+        svg += '<text x="'+ccx+'" y="'+(ccy+fontSize*0.75)+'" font-size="'+(fontSize*0.72)+'" fill="'+(reusable?'#3F8F6E':'#9AA6B5')+'" text-anchor="middle" font-family="IBM Plex Mono, monospace">'+fmt(r.w)+' × '+fmt(r.h)+'</text>';
+      }
+    });
+
+    svg += '</svg>';
+    return svg;
+  }
+
+  function dimLine(x1,y1,x2,y2,label,fontSize,horizontal){
+    var s = '<g stroke="#4A5A7A" stroke-width="'+(fontSize*0.06)+'">';
+    s += '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" />';
+    var tick = fontSize*0.35;
+    if(horizontal){
+      s += '<line x1="'+x1+'" y1="'+(y1-tick)+'" x2="'+x1+'" y2="'+(y1+tick)+'" />';
+      s += '<line x1="'+x2+'" y1="'+(y2-tick)+'" x2="'+x2+'" y2="'+(y2+tick)+'" />';
+    } else {
+      s += '<line x1="'+(x1-tick)+'" y1="'+y1+'" x2="'+(x1+tick)+'" y2="'+y1+'" />';
+      s += '<line x1="'+(x2-tick)+'" y1="'+y2+'" x2="'+(x2+tick)+'" y2="'+y2+'" />';
+    }
+    s += '</g>';
+    var mx=(x1+x2)/2, my=(y1+y2)/2;
+    if(horizontal){
+      s += '<text x="'+mx+'" y="'+(my-fontSize*0.4)+'" font-size="'+fontSize+'" fill="#4A5A7A" text-anchor="middle" font-family="IBM Plex Mono, monospace">'+label+'</text>';
+    } else {
+      s += '<text x="'+(mx-fontSize*0.4)+'" y="'+my+'" font-size="'+fontSize+'" fill="#4A5A7A" text-anchor="middle" font-family="IBM Plex Mono, monospace" transform="rotate(-90 '+(mx-fontSize*0.4)+' '+my+')">'+label+'</text>';
+    }
+    return s;
+  }
+
+  function renderLegend(grainGlobal){
+    if(edgeTypes.length===0 && grainGlobal==='aucun') return '';
+    var html = '<div class="legend-strip">';
+    if(edgeTypes.length){
+      html += '<div class="legend-group"><span class="legend-title">Chants</span>';
+      edgeTypes.forEach(function(t){
+        html += '<span class="legend-item"><span class="legend-dot" style="background:'+t.color+'"></span>'+escapeXML(t.name)+'</span>';
+      });
+      html += '</div>';
+    }
+    if(grainGlobal !== 'aucun'){
+      html += '<div class="legend-group"><span class="legend-title">Fil du bois</span>'+
+              '<span class="legend-item">'+(grainGlobal==='horizontal'?'↔ Horizontal':'↕ Vertical')+' (panneau) — trait plein + 🔒 = verrouillé, pointillé = indicatif</span></div>';
+    }
+    html += '<div class="legend-group"><span class="legend-item"><span class="legend-dot" style="background:#3F8F6E"></span>Chute réutilisable</span></div>';
+    html += '</div>';
+    return html;
+  }
+
+  function render(result, input){
+    var resultsEl = document.getElementById('results');
+    var summaryEl = document.getElementById('summary');
+    var toolbar = document.getElementById('toolbar');
+    var sheets = result.sheets;
+
+    if(sheets.length === 0){
+      resultsEl.innerHTML = '<div class="empty-state">Aucune pièce à calepiner. Ajoutez des pièces puis relancez le calcul.</div>';
+      summaryEl.innerHTML = '';
+      toolbar.style.display = 'none';
+      return;
+    }
+    toolbar.style.display = 'flex';
+
+    var stockArea = input.stockW * input.stockH;
+    var totalArea = stockArea * sheets.length;
+    var usedArea = 0;
+    sheets.forEach(function(s){ s.placed.forEach(function(p){ usedArea += p.w*p.h; }); });
+    var wastePct = 100 - (usedArea/totalArea*100);
+
+    summaryEl.innerHTML =
+      '<div class="summary-strip">'+
+        '<div class="stat"><div class="num">'+sheets.length+'</div><div class="lbl">Panneau'+(sheets.length>1?'x':'')+' nécessaire'+(sheets.length>1?'s':'')+'</div></div>'+
+        '<div class="stat used"><div class="num">'+fmt(100-wastePct)+'%</div><div class="lbl">Matière utilisée</div></div>'+
+        '<div class="stat waste"><div class="num">'+fmt(wastePct)+'%</div><div class="lbl">Chute</div></div>'+
+      '</div>' + renderLegend(input.grainGlobal);
+
+    if(result.overflow && result.overflow.length){
+      summaryEl.innerHTML += '<div class="legend-strip" style="border-color:var(--rust);"><span class="legend-item" style="color:var(--rust);">⚠ '+result.overflow.length+' pièce(s) n\'ont pas pu être placées (nombre de panneaux disponibles insuffisant).</span></div>';
+    }
+
+    var html = '';
+    var reuseThresholdMm2 = (input.reuseThresholdCm2||0) * 100;
+    var reusableList = [];
+    sheets.forEach(function(sheet, i){
+      var sArea = input.stockW*input.stockH;
+      var sUsed = sheet.placed.reduce(function(a,p){return a+p.w*p.h;},0);
+      var sWaste = 100 - (sUsed/sArea*100);
+      sheet.freeRects.forEach(function(r){
+        if(r.w*r.h >= reuseThresholdMm2){
+          reusableList.push({sheet:i+1, w:r.w, h:r.h, area:r.w*r.h});
+        }
+      });
+      html += '<div class="sheet-card">'+
+        '<div class="sheet-svg-wrap">'+ renderSheetSVG(sheet, input.stockW, input.stockH, input.unit, input.grainGlobal, input.margin, reuseThresholdMm2) +'</div>'+
+        '<div class="sheet-infobar">'+
+          '<span>PANNEAU N°<b>'+(i+1)+'</b> / '+sheets.length+'</span>'+
+          '<span><b>'+sheet.placed.length+'</b> pièce'+(sheet.placed.length>1?'s':'')+'</span>'+
+          '<span>Chute : <b>'+fmt(sWaste)+'%</b></span>'+
+        '</div>'+
+      '</div>';
+    });
+
+    // ---- bilan global final ----
+    var totalAreaM2 = totalArea/1e6;
+    var usedAreaM2 = usedArea/1e6;
+    var wasteAreaM2 = (totalArea-usedArea)/1e6;
+
+    var reuseHTML = '<h3>Bilan global &amp; chutes réutilisables</h3>'+
+      '<div class="final-grid">'+
+        '<div><div class="num">'+sheets.length+'</div><div class="lbl">Panneaux utilisés</div></div>'+
+        '<div><div class="num">'+fmt(totalAreaM2)+' m²</div><div class="lbl">Surface totale achetée</div></div>'+
+        '<div><div class="num">'+fmt(usedAreaM2)+' m²</div><div class="lbl">Surface totale utilisée</div></div>'+
+        '<div><div class="num">'+fmt(wasteAreaM2)+' m²</div><div class="lbl">Surface totale de chute</div></div>'+
+        '<div><div class="num">'+fmt(wastePct)+' %</div><div class="lbl">Pourcentage de perte</div></div>'+
+      '</div>';
+
+    if(reusableList.length){
+      reuseHTML += '<ul class="reuse-list">'+ reusableList.map(function(r){
+        return '<li><span>Panneau '+r.sheet+' — '+fmt(r.w)+' × '+fmt(r.h)+' '+input.unit+'</span><b>'+fmt(r.area/100)+' cm²</b></li>';
+      }).join('') + '</ul>';
+    } else {
+      reuseHTML += '<div class="reuse-none">Aucune chute au-delà du seuil de réutilisation ('+ (input.reuseThresholdCm2||0) +' cm²).</div>';
+    }
+
+    html += '<div class="final-report">'+reuseHTML+'</div>';
+
+    resultsEl.innerHTML = html;
+  }
+
+  document.getElementById('computeBtn').addEventListener('click', function(){
+    var input = gatherInput();
+    saveState();
+    if(input.stockW<=0 || input.stockH<=0){
+      alert('Merci de renseigner des dimensions de panneau valides.');
+      return;
+    }
+    if((input.stockW - 2*input.margin) <= 0 || (input.stockH - 2*input.margin) <= 0){
+      alert('La marge périphérique est trop grande pour ces dimensions de panneau.');
+      return;
+    }
+    var result = packBest(input);
+    render(result, input);
+  });
+
+  document.getElementById('printBtn').addEventListener('click', function(){
+    window.print();
+  });
+
+})();
+</script>
+</body>
+</html>
