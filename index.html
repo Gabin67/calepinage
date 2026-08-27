@@ -228,11 +228,12 @@
             <label for="grainGlobal">Sens du fil (panneau)</label>
             <select id="grainGlobal">
               <option value="aucun" selected>Aucun</option>
-              <option value="horizontal">Horizontal (↔)</option>
-              <option value="vertical">Vertical (↕)</option>
+              <option value="longueur">Suit la longueur du panneau (↔)</option>
+              <option value="largeur">Suit la largeur du panneau (↕)</option>
             </select>
           </div>
         </div>
+        <div class="hint">Sur chaque pièce, vous choisissez quelle cote (longueur ou largeur) suit le fil. Sur le panneau, vous choisissez si le fil global suit sa longueur ou sa largeur. Si les deux sont définis, la pièce est alors placée dans le seul sens compatible (jamais tournée à l'encontre du fil).</div>
         <div class="row2" style="margin-bottom:0;">
           <div class="field" style="margin-bottom:0;">
             <label for="stockQty">Panneaux disponibles</label>
@@ -307,7 +308,7 @@
 (function(){
   "use strict";
 
-  var STORAGE_KEY = "calepinage_state_v3";
+  var STORAGE_KEY = "calepinage_state_v4";
   var partsBody = document.getElementById('partsBody');
   var rowCount = 0;
 
@@ -442,13 +443,19 @@
     '</div>';
   }
 
+  function grainOptionsHTML(selectedVal, w, h){
+    var v = selectedVal || 'none';
+    return '<option value="none"'+(v==='none'?' selected':'')+'>Libre — aucune contrainte</option>'+
+           '<option value="w"'+(v==='w'?' selected':'')+'>Le fil suit la longueur ('+fmt(w)+')</option>'+
+           '<option value="h"'+(v==='h'?' selected':'')+'>Le fil suit la largeur ('+fmt(h)+')</option>';
+  }
+
   function makeRow(data){
     data = data || {};
     rowCount++;
     var card = document.createElement('div');
     card.className = 'part-card';
     card.dataset.id = rowCount;
-    var grainMode = data.grainMode || 'suivre';
 
     var edgeFront = isEdgeValValid(data.edgeFront) ? (data.edgeFront||'') : '';
     var edgeBack  = isEdgeValValid(data.edgeBack)  ? (data.edgeBack||'')  : '';
@@ -468,15 +475,9 @@
       '</div>'+
       '<div class="part-flags">'+
         '<label class="checkline"><input type="checkbox" class="p-rot" '+(data.rot!==false?'checked':'')+'> Rotation autorisée</label>'+
-        '<label class="checkline">Fil :'+
-          '<select class="p-grain">'+
-            '<option value="suivre"'+(grainMode==='suivre'?' selected':'')+'>Panneau</option>'+
-            '<option value="horizontal"'+(grainMode==='horizontal'?' selected':'')+'>Horiz.</option>'+
-            '<option value="vertical"'+(grainMode==='vertical'?' selected':'')+'>Vert.</option>'+
-            '<option value="aucun"'+(grainMode==='aucun'?' selected':'')+'>Aucun</option>'+
-          '</select>'+
+        '<label class="checkline" style="flex:1; min-width:230px;">Fil :'+
+          '<select class="p-grain-edge">'+ grainOptionsHTML(data.grainAlong||'none', data.w||600, data.h||400) +'</select>'+
         '</label>'+
-        '<label class="checkline"><input type="checkbox" class="p-grainlock" '+(data.grainLock?'checked':'')+'> 🔒 Verrouiller</label>'+
       '</div>'+
       '<div class="chant-grid-label">Chants à plaquer</div>'+
       '<div class="chant-grid">'+
@@ -500,6 +501,17 @@
   partsBody.addEventListener('change', function(e){
     if(/^p-edge-(front|back|left|right)$/.test(e.target.className)){
       updateSwatch(e.target);
+    }
+  });
+
+  partsBody.addEventListener('input', function(e){
+    if(e.target.classList.contains('p-w') || e.target.classList.contains('p-h')){
+      var card = e.target.closest('.part-card');
+      var wv = parseFloat(card.querySelector('.p-w').value) || 0;
+      var hv = parseFloat(card.querySelector('.p-h').value) || 0;
+      var sel = card.querySelector('.p-grain-edge');
+      var cur = sel.value;
+      sel.innerHTML = grainOptionsHTML(cur, wv, hv);
     }
   });
 
@@ -529,7 +541,7 @@
         makeRow({
           name:p.name, w:p.w, h:p.h, qty:p.qty, rot:p.rot,
           edgeFront:p.edgeFront, edgeBack:p.edgeBack, edgeLeft:p.edgeLeft, edgeRight:p.edgeRight,
-          grainMode:p.grainMode, grainLock:p.grainLock
+          grainAlong:p.grainAlong
         });
       });
       return true;
@@ -554,8 +566,7 @@
         edgeBack:  card.querySelector('.p-edge-back').value  || null,
         edgeLeft:  card.querySelector('.p-edge-left').value  || null,
         edgeRight: card.querySelector('.p-edge-right').value || null,
-        grainMode: card.querySelector('.p-grain').value,
-        grainLock: card.querySelector('.p-grainlock').checked
+        grainAlong: card.querySelector('.p-grain-edge').value || 'none'
       });
     });
     return {
@@ -581,24 +592,40 @@
   // ============== PACKING ALGORITHM (guillotine, multi-heuristique) ==============
   var COLORS = ['#C97A2B','#3F6659','#5C6FA8','#B5433D','#8B6BAF','#4C8FA0','#B08A2E','#6A7F3F'];
 
-  function effectiveGrainOf(part, globalGrain){
-    return part.grainMode === 'suivre' ? globalGrain : part.grainMode;
+  // Détermine si la pièce DOIT être posée dans une orientation précise :
+  // - null   => libre (aucune contrainte de fil applicable)
+  // - false  => doit rester non tournée (sa cote "grainAlong" doit rester horizontale)
+  // - true   => doit obligatoirement être tournée
+  function computeForcedRotation(grainAlong, grainGlobal){
+    if(grainGlobal === 'aucun' || !grainAlong || grainAlong === 'none') return null;
+    if(grainGlobal === 'longueur') return grainAlong === 'w' ? false : true;
+    return grainAlong === 'w' ? true : false; // grainGlobal === 'largeur'
   }
 
   function buildInstances(input){
     var instances = [];
     input.parts.forEach(function(p, idx){
-      var eff = effectiveGrainOf(p, input.grainGlobal);
-      var allowRotate = p.rot && !(p.grainLock && eff !== 'aucun');
+      var forced = computeForcedRotation(p.grainAlong, input.grainGlobal);
       for(var i=0;i<p.qty;i++){
         instances.push({
-          name:p.name, w:p.w, h:p.h, allowRotate:allowRotate, colorIdx: idx % COLORS.length,
+          name:p.name, w:p.w, h:p.h, origW:p.w, origH:p.h,
+          allowRotate:p.rot, forcedRotation:forced, colorIdx: idx % COLORS.length,
           edgeFront:p.edgeFront, edgeBack:p.edgeBack, edgeLeft:p.edgeLeft, edgeRight:p.edgeRight,
-          grainMode:p.grainMode, grainLock:p.grainLock
+          grainAlong:p.grainAlong
         });
       }
     });
     return instances;
+  }
+
+  // Liste des orientations admissibles pour une instance, en respectant une éventuelle
+  // contrainte de fil forcée (une seule orientation possible) ou la rotation libre.
+  function orientationsFor(inst){
+    if(inst.forcedRotation === true)  return [{w:inst.h, h:inst.w, rotated:true}];
+    if(inst.forcedRotation === false) return [{w:inst.w, h:inst.h, rotated:false}];
+    var arr = [{w:inst.w, h:inst.h, rotated:false}];
+    if(inst.allowRotate) arr.push({w:inst.h, h:inst.w, rotated:true});
+    return arr;
   }
 
   // strategy: 'area' (best-area-fit), 'short' (best-short-side-fit), 'long' (best-long-side-fit)
@@ -618,9 +645,7 @@
       var best = null;
       sheets.forEach(function(sheet, sIdx){
         sheet.freeRects.forEach(function(r, rIdx){
-          [ {w:inst.w, h:inst.h, rotated:false},
-            {w:inst.h, h:inst.w, rotated:true} ].forEach(function(orient){
-            if(!inst.allowRotate && orient.rotated) return;
+          orientationsFor(inst).forEach(function(orient){
             if(orient.w <= r.w + 1e-6 && orient.h <= r.h + 1e-6){
               var waste = wasteScore(r, orient.w, orient.h);
               if(!best || waste < best.waste){
@@ -640,18 +665,19 @@
         sheet = newSheet();
         sheets.push(sheet);
         r = sheet.freeRects[0];
-        var fitsNormal = inst.w <= r.w && inst.h <= r.h;
-        var fitsRot = inst.allowRotate && inst.h <= r.w && inst.w <= r.h;
-        if(fitsNormal){ best = {sheetIdx: sheets.length-1, rectIdx:0, w:inst.w, h:inst.h, rotated:false}; }
-        else if(fitsRot){ best = {sheetIdx: sheets.length-1, rectIdx:0, w:inst.h, h:inst.w, rotated:true}; }
-        else { overflow.push(inst); sheets.pop(); return; }
+        var candidates = orientationsFor(inst).filter(function(o){ return o.w <= r.w+1e-6 && o.h <= r.h+1e-6; });
+        if(candidates.length){
+          best = {sheetIdx: sheets.length-1, rectIdx:0, w:candidates[0].w, h:candidates[0].h, rotated:candidates[0].rotated};
+        } else {
+          overflow.push(inst); sheets.pop(); return;
+        }
       }
 
       var px = r.x, py = r.y, pw = best.w, ph = best.h;
       sheet.placed.push({
         x:px, y:py, w:pw, h:ph, name:inst.name, rotated:best.rotated, colorIdx:inst.colorIdx,
         edgeFront:inst.edgeFront, edgeBack:inst.edgeBack, edgeLeft:inst.edgeLeft, edgeRight:inst.edgeRight,
-        grainMode:inst.grainMode, grainLock:inst.grainLock
+        grainAlong:inst.grainAlong, origW:inst.origW, origH:inst.origH
       });
 
       sheet.freeRects.splice(best.rectIdx, 1);
@@ -671,6 +697,138 @@
     });
 
     return { sheets: sheets, overflow: overflow };
+  }
+
+  // ---- Stratégie "bandes de découpe" (shelf packing) ----
+  // Regroupe les pièces qui partagent une même hauteur (ou largeur, via la variante
+  // transposée) dans des bandes communes pour coller les pièces bord à bord et
+  // supprimer la perte verticale entre pièces de même taille.
+  function packShelves(usableW, usableH, kerf, maxSheets, instances0){
+    var sheets = []; // { shelves:[{y,height,usedWidth,items:[]}], yCursor }
+    var overflow = [];
+
+    function newSheet(){ return { shelves: [], yCursor: 0 }; }
+
+    instances0.forEach(function(inst){
+      var orientations = orientationsFor(inst);
+      var best = null; // {sheetIdx, shelfIdx, orient, waste}
+
+      sheets.forEach(function(sheet, sIdx){
+        sheet.shelves.forEach(function(shelf, shIdx){
+          orientations.forEach(function(orient){
+            var neededW = orient.w + (shelf.items.length ? kerf : 0);
+            if(orient.h <= shelf.height + 1e-6 && (shelf.usedWidth + neededW) <= usableW + 1e-6){
+              var waste = shelf.height - orient.h;
+              if(!best || waste < best.waste){
+                best = {sheetIdx:sIdx, shelfIdx:shIdx, orient:orient, waste:waste};
+              }
+            }
+          });
+        });
+      });
+
+      if(!best){
+        // ouvrir une nouvelle bande sur une feuille existante si la hauteur restante le permet
+        sheets.forEach(function(sheet, sIdx){
+          if(best) return;
+          orientations.forEach(function(orient){
+            if(best) return;
+            var neededH = orient.h + (sheet.shelves.length ? kerf : 0);
+            if(orient.w <= usableW + 1e-6 && (sheet.yCursor + neededH) <= usableH + 1e-6){
+              best = {sheetIdx:sIdx, shelfIdx:-1, orient:orient, waste:0};
+            }
+          });
+        });
+      }
+
+      if(!best){
+        if(maxSheets && sheets.length >= maxSheets){ overflow.push(inst); return; }
+        var candidate = null;
+        orientations.forEach(function(orient){
+          if(orient.w <= usableW + 1e-6 && orient.h <= usableH + 1e-6){
+            if(!candidate || orient.h < candidate.h) candidate = orient;
+          }
+        });
+        if(!candidate){ overflow.push(inst); return; }
+        sheets.push(newSheet());
+        best = {sheetIdx: sheets.length-1, shelfIdx:-1, orient:candidate, waste:0};
+      }
+
+      var sheet = sheets[best.sheetIdx];
+      if(best.shelfIdx === -1){
+        var newY = sheet.shelves.length ? sheet.yCursor + kerf : 0;
+        sheet.shelves.push({ y:newY, height:best.orient.h, usedWidth:0, items:[] });
+        sheet.yCursor = newY + best.orient.h;
+        best.shelfIdx = sheet.shelves.length - 1;
+      }
+      var shelf = sheet.shelves[best.shelfIdx];
+      var x = shelf.usedWidth + (shelf.items.length ? kerf : 0);
+      shelf.items.push({
+        x:x, w:best.orient.w, h:best.orient.h, rotated:best.orient.rotated,
+        name:inst.name, colorIdx:inst.colorIdx,
+        edgeFront:inst.edgeFront, edgeBack:inst.edgeBack, edgeLeft:inst.edgeLeft, edgeRight:inst.edgeRight,
+        grainAlong:inst.grainAlong, origW:inst.origW, origH:inst.origH
+      });
+      shelf.usedWidth = x + best.orient.w;
+    });
+
+    var outSheets = sheets.map(function(sheet){
+      var placed = [];
+      var freeRects = [];
+      sheet.shelves.forEach(function(shelf){
+        shelf.items.forEach(function(it){
+          placed.push({
+            x:it.x, y:shelf.y, w:it.w, h:it.h, rotated:it.rotated, name:it.name, colorIdx:it.colorIdx,
+            edgeFront:it.edgeFront, edgeBack:it.edgeBack, edgeLeft:it.edgeLeft, edgeRight:it.edgeRight,
+            grainAlong:it.grainAlong, origW:it.origW, origH:it.origH
+          });
+        });
+        var leftoverX = shelf.items.length ? shelf.usedWidth + kerf : 0;
+        var leftoverW = usableW - leftoverX;
+        if(leftoverW > 0.5){ freeRects.push({x:leftoverX, y:shelf.y, w:leftoverW, h:shelf.height}); }
+      });
+      var bottomY = sheet.shelves.length ? sheet.yCursor : 0;
+      var bottomH = usableH - bottomY;
+      if(bottomH > 0.5){ freeRects.push({x:0, y:bottomY, w:usableW, h:bottomH}); }
+      return { placed: placed, freeRects: freeRects };
+    });
+
+    return { sheets: outSheets, overflow: overflow };
+  }
+
+  // Variante transposée : regroupe les pièces par LARGEUR commune (colonnes) au lieu
+  // de hauteur commune, en résolvant le même problème sur des axes inversés.
+  function packShelvesTransposed(usableW, usableH, kerf, maxSheets, instances0){
+    var swapped = instances0.map(function(inst){
+      var t = {};
+      for(var k in inst){ t[k] = inst[k]; }
+      t.w = inst.h; t.h = inst.w;
+      t.forcedRotation = (inst.forcedRotation === null) ? null : !inst.forcedRotation;
+      return t;
+    });
+    var result = packShelves(usableH, usableW, kerf, maxSheets, swapped);
+    result.sheets = result.sheets.map(function(sheet){
+      return {
+        placed: sheet.placed.map(function(p){
+          var q = {}; for(var k in p){ q[k] = p[k]; }
+          q.x = p.y; q.y = p.x; q.w = p.h; q.h = p.w;
+          return q;
+        }),
+        freeRects: sheet.freeRects.map(function(r){ return {x:r.y, y:r.x, w:r.h, h:r.w}; })
+      };
+    });
+    return result;
+  }
+
+  // Recalcule pour chaque pièce placée si elle a été tournée par rapport à sa
+  // dimension d'origine — nécessaire car les variantes transposées ne suivent pas
+  // le flag "rotated" de façon directe.
+  function finalizePlacedRotation(sheets){
+    sheets.forEach(function(sheet){
+      sheet.placed.forEach(function(p){
+        if(p.origW != null){ p.rotated = Math.abs(p.w - p.origW) > 0.5; }
+      });
+    });
   }
 
   function scoreResult(result, usableW, usableH){
@@ -699,19 +857,40 @@
     var strategies = ['area','short','long'];
 
     var best = null, bestScore = null;
+    function consider(result){
+      var score = scoreResult(result, usableW, usableH);
+      if(bestScore === null || score < bestScore){ bestScore = score; best = result; }
+    }
+
     comparators.forEach(function(cmp){
       var ordered = baseInstances.slice().sort(cmp);
       strategies.forEach(function(strat){
-        var result = packWithOrder(usableW, usableH, input.kerf, maxSheets, ordered, strat);
-        var score = scoreResult(result, usableW, usableH);
-        if(bestScore === null || score < bestScore){ bestScore = score; best = result; }
+        consider(packWithOrder(usableW, usableH, input.kerf, maxSheets, ordered, strat));
       });
     });
+
+    // Stratégie bandes de découpe : regroupe les pièces de même hauteur (ou largeur,
+    // via la variante transposée) pour minimiser la perte entre pièces identiques.
+    var shelfSortOrders = [comparators[0], comparators[4], comparators[5]];
+    shelfSortOrders.forEach(function(cmp){
+      var ordered = baseInstances.slice().sort(cmp);
+      consider(packShelves(usableW, usableH, input.kerf, maxSheets, ordered));
+      consider(packShelvesTransposed(usableW, usableH, input.kerf, maxSheets, ordered));
+    });
+
+    finalizePlacedRotation(best.sheets);
     return best; // {sheets, overflow}
   }
 
   // ============== RENDERING ==============
   function fmt(n){ return (Math.round(n*100)/100).toString(); }
+
+  function toMeters(len, unit){
+    if(unit === 'mm') return len/1000;
+    if(unit === 'cm') return len/100;
+    if(unit === 'in') return len*0.0254;
+    return len/1000;
+  }
 
   function edgeMapFor(p){
     var isLongHoriz = p.w >= p.h;
@@ -743,6 +922,15 @@
   function arrowHead(px,py,angleDeg,fontSize,color){
     var s = fontSize*0.35;
     return '<polygon points="0,0 -'+s+',-'+(s*0.55)+' -'+s+','+(s*0.55)+'" fill="'+color+'" stroke="none" transform="translate('+px+','+py+') rotate('+angleDeg+')" />';
+  }
+
+  // Déduit la direction d'affichage du fil à partir de la cote choisie par l'utilisateur
+  // (grainAlong: 'w' ou 'h') et de l'orientation réelle retenue par le calepinage (rotated).
+  function displayedGrainDirection(p){
+    if(!p.grainAlong || p.grainAlong === 'none') return null;
+    var alongW = p.grainAlong === 'w';
+    if(alongW) return p.rotated ? 'vertical' : 'horizontal';
+    return p.rotated ? 'horizontal' : 'vertical';
   }
 
   function drawGrain(x,y,w,h,direction,locked,fontSize){
@@ -803,8 +991,8 @@
 
       svg += drawEdges(x,y,p.w,p.h, edgeMapFor(p), fontSize);
 
-      var eff = p.grainMode==='suivre' ? grainGlobal : p.grainMode;
-      if(eff && eff!=='aucun'){ svg += drawGrain(x,y,p.w,p.h,eff,!!p.grainLock,fontSize); }
+      var grainDir = displayedGrainDirection(p);
+      if(grainDir){ svg += drawGrain(x,y,p.w,p.h,grainDir, grainGlobal!=='aucun', fontSize); }
 
       var cx = x + p.w/2, cy = y + p.h/2;
       var label = p.name + (p.rotated ? ' ⟳' : '');
@@ -851,6 +1039,23 @@
     return s;
   }
 
+  // Calcule, pour chaque type de chant, le linéaire total nécessaire (en unité du panneau).
+  // Chants "avant/arrière" = grande arête (max(L,l)), "gauche/droite" = petite arête (min(L,l)).
+  function computeEdgeTotals(input){
+    var totals = {}; // typeId -> longueur totale
+    input.parts.forEach(function(p){
+      var longLen = Math.max(p.w, p.h), shortLen = Math.min(p.w, p.h);
+      var qty = p.qty || 1;
+      [ [p.edgeFront, longLen], [p.edgeBack, longLen], [p.edgeLeft, shortLen], [p.edgeRight, shortLen] ]
+        .forEach(function(pair){
+          var typeId = pair[0], len = pair[1];
+          if(!typeId) return;
+          totals[typeId] = (totals[typeId] || 0) + len * qty;
+        });
+    });
+    return totals;
+  }
+
   function renderLegend(grainGlobal){
     if(edgeTypes.length===0 && grainGlobal==='aucun') return '';
     var html = '<div class="legend-strip">';
@@ -863,7 +1068,7 @@
     }
     if(grainGlobal !== 'aucun'){
       html += '<div class="legend-group"><span class="legend-title">Fil du bois</span>'+
-              '<span class="legend-item">'+(grainGlobal==='horizontal'?'↔ Horizontal':'↕ Vertical')+' (panneau) — trait plein + 🔒 = verrouillé, pointillé = indicatif</span></div>';
+              '<span class="legend-item">'+(grainGlobal==='longueur'?'↔ Suit la longueur du panneau':'↕ Suit la largeur du panneau')+' — trait plein = cote de fil imposée sur la pièce, pointillé = pièce libre</span></div>';
     }
     html += '<div class="legend-group"><span class="legend-item"><span class="legend-dot" style="background:#3F8F6E"></span>Chute réutilisable</span></div>';
     html += '</div>';
@@ -946,6 +1151,22 @@
     }
 
     html += '<div class="final-report">'+reuseHTML+'</div>';
+
+    // ---- linéaire de chants nécessaire ----
+    var edgeTotals = computeEdgeTotals(input);
+    var edgeIds = Object.keys(edgeTotals);
+    var edgeHTML = '<h3>Linéaire de chants nécessaire</h3>';
+    if(edgeIds.length){
+      edgeHTML += '<ul class="reuse-list">' + edgeIds.map(function(id){
+        var t = edgeTypeById(id);
+        if(!t) return '';
+        var meters = toMeters(edgeTotals[id], input.unit);
+        return '<li><span><span class="legend-dot" style="background:'+t.color+'; display:inline-block; margin-right:6px; vertical-align:middle;"></span>'+escapeXML(t.name)+'</span><b>'+fmt(meters)+' m</b></li>';
+      }).join('') + '</ul>';
+    } else {
+      edgeHTML += '<div class="reuse-none">Aucun chant n\'est appliqué sur les pièces.</div>';
+    }
+    html += '<div class="final-report">'+edgeHTML+'</div>';
 
     resultsEl.innerHTML = html;
   }
